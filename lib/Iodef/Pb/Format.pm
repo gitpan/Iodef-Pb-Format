@@ -4,7 +4,7 @@ use base 'Class::Accessor';
 use strict;
 use warnings;
 
-our $VERSION = '0.00_01';
+our $VERSION = '0.01';
 $VERSION = eval $VERSION;
 
 use Module::Pluggable require => 1, search_path => [__PACKAGE__];
