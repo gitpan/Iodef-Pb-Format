@@ -4,7 +4,7 @@ use base 'Class::Accessor';
 use strict;
 use warnings;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 $VERSION = eval $VERSION;
 
 use Module::Pluggable require => 1, search_path => [__PACKAGE__];
@@ -22,7 +22,7 @@ sub new {
      
     my $driver  = $args->{'format'} || 'Table';
     $driver     = __PACKAGE__.'::'.$driver;
-    
+      
     my $data;
     try {
         $driver = $driver->SUPER::new($args);
@@ -80,8 +80,7 @@ sub convert_restriction {
     return 'default'        if($r == RestrictionType::restriction_type_default());
 }
 
-# by default simplify on the Address Class
-sub by_address {
+sub to_keypair {
     my $self = shift;
     my $data = shift;
     
@@ -91,7 +90,6 @@ sub by_address {
     if(ref($data) eq 'IODEFDocumentType'){
         $data = [$data];
     }
-    
     foreach my $doc (@$data){
         next unless(ref($doc) eq 'IODEFDocumentType');
         foreach my $i (@{$doc->get_Incident()}){
@@ -131,17 +129,19 @@ sub by_address {
                     $guid = $_->get_content();
                 }
             }
-            $restriction = $self->convert_restriction($restriction);
-            
-            ## TODO -- this and guid map might need to be outside this lib
-            if(my $r = $self->get_restriction_map()){
-                if($r = $r->{$restriction}){
+            $restriction        = $self->convert_restriction($restriction);
+            $altid_restriction   = $self->convert_restriction($altid_restriction);
+            if(my $map = $self->get_restriction_map()){
+                if(my $r = $map->{$restriction}){
                     $restriction = $r;
+                }
+                if($altid_restriction && (my $r = $map->{$altid_restriction})){
+                    $altid_restriction = $r;
                 }
             }
             
-            if(my $g = $self->get_group_map->{$guid}){
-                $guid = $g;
+            if($self->get_group_map && $self->get_group_map->{$guid}){
+                $guid = $self->get_group_map->{$guid};
             }
             
             my $hash = {
@@ -153,19 +153,23 @@ sub by_address {
                 confidence  => $confidence,
                 assessment  => $assessment,
                 restriction => $restriction,
+                purpose     => $purpose,
+                alternativeid               => $altid,
+                alternativeid_restriction   => $altid_restriction,
             };
+            if(my $ad = $i->get_AdditionalData()){
+                foreach my $a (@$ad){
+                    next unless($a->get_meaning() eq 'hash');
+                    $hash->{'hash'}         = $a->get_content();
+                    push(@array,$hash);
+                }
+            }
             if($i->get_EventData()){
                 foreach my $e (@{$i->get_EventData()}){
                     my @flows = (ref($e->get_Flow()) eq 'ARRAY') ? @{$e->get_Flow()} : $e->get_Flow();
                     foreach my $f (@flows){
                         my @systems = (ref($f->get_System()) eq 'ARRAY') ? @{$f->get_System()} : $f->get_System();
                         foreach my $s (@systems){
-                            my $service = $s->get_Service();
-                            my ($portlist,$protocol);
-                            if($service){
-                                $portlist = $service->get_Portlist();
-                                $protocol = $service->get_ip_protocol();
-                            }
                             my $asn;
                             my $ad = $s->get_AdditionalData();
                             if($ad){
@@ -175,29 +179,134 @@ sub by_address {
                             }
                             
                             my @nodes = (ref($s->get_Node()) eq 'ARRAY') ? @{$s->get_Node()} : $s->get_Node();
+                            my $service = $s->get_Service();
                             foreach my $n (@nodes){
                                 my $addresses = $n->get_Address();
                                 $addresses = [$addresses] if(ref($addresses) eq 'AddressType');
                                 foreach my $a (@$addresses){
                                     $hash->{'address'}     = $a->get_content();
                                     $hash->{'restriction'} = $restriction;
-                                    $hash->{'purpose'}     = $purpose;
-                                    $hash->{'portlist'}    = $portlist;
-                                    $hash->{'protocol'}    = $protocol;
                                     $hash->{'asn'}         = $asn;  
+                                    
+                                    if($service){
+                                        my ($portlist,$protocol);
+                                        foreach my $srv (@$service){
+                                            $hash->{'portlist'} = $srv->get_Portlist();
+                                            $hash->{'protocol'} = $srv->get_ip_protocol();
+                                            push(@array,$hash);
+                                        }
+                                    } else {
+                                        push(@array,$hash);
+                                    }
                                 }
+                                #die ::Dumper(@array);
                             }
                         }
                     }
                 }
             }
-            $hash->{'alternativeid'}               = $altid;
-            $hash->{'alternativeid_restriction'}   = convert_restriction($altid_restriction);
-            push(@array,$hash);
+            #push(@array,$hash);
         }
     }
+    #die ::Dumper(@array);
+    return(\@array); 
+}
+
+sub by_hash {
+    my $self = shift;
+    my $data = shift;
+    
+    my @array;
+    
+    # we do this in case we're handed an array of IODEF Documents
+    if(ref($data) eq 'IODEFDocumentType'){
+        $data = [$data];
+    }
+        
+    foreach my $doc (@$data){
+        next unless(ref($doc) eq 'IODEFDocumentType');
+        foreach my $i (@{$doc->get_Incident()}){
+            my $detecttime = $i->get_DetectTime();
+            my $reporttime = $i->get_ReportTime();
+        
+            my $description = @{$i->get_Description}[0] ->get_content();
+
+            my $id = $i->get_IncidentID->get_content();
+        
+            my $assessment = @{$i->get_Assessment()}[0];
+        
+            my $confidence = $assessment->get_Confidence->get_rating();
+            $confidence = $assessment->get_Confidence->get_content() if($confidence == ConfidenceType::ConfidenceRating::Confidence_rating_numeric());
+            $assessment = @{$assessment->get_Impact}[0]->get_content->get_content();
+        
+            ## TODO -- restriction needs to be mapped down to event recursively where it exists in IODEF
+            my $restriction = $i->get_restriction() || RestrictionType::restriction_type_private();
+            my $purpose     = $i->get_purpose();
+        
+            my ($altid,$altid_restriction);
+        
+            if(my $x = $i->get_AlternativeID()){
+                if(ref($x) eq 'ARRAY'){
+                    $altid               = @{$x}[0];
+                } else {
+                    $altid               = $x;
+                }
+                $altid_restriction   = $altid->get_restriction();
+                $altid               = @{$altid->get_IncidentID}[0]->get_content();
+            }
+            
+            my $guid;
+            if(my $iad = $i->get_AdditionalData()){
+                foreach (@$iad){
+                    next unless($_->get_meaning() eq 'guid');
+                    $guid = $_->get_content();
+                }
+            }
+            $restriction        = $self->convert_restriction($restriction);
+            $altid_restriction   = $self->convert_restriction($altid_restriction);
+            if(my $map = $self->get_restriction_map()){
+                if(my $r = $map->{$restriction}){
+                    $restriction = $r;
+                }
+                if(my $r = $map->{$altid_restriction}){
+                    $altid_restriction = $r;
+                }
+            }
+            
+            if($self->get_group_map && $self->get_group_map->{$guid}){
+                $guid = $self->get_group_map->{$guid};
+            }
+            
+            my $hash = {
+                id          => $id,
+                guid        => $guid,
+                description => $description,
+                detecttime  => $detecttime,
+                reporttime  => $reporttime,
+                confidence  => $confidence,
+                assessment  => $assessment,
+                restriction => $restriction,
+                purpose     => $purpose,
+                restriction => $restriction,
+                alternativeid               => $altid,
+                alternativeid_restriction   => $altid_restriction,
+            };
+            
+            if(my $ad = $i->get_AdditionalData()){
+                foreach my $a (@$ad){
+                    next unless($a->get_meaning() eq 'hash');
+                    $hash->{'hash'}         = $a->get_content();
+                    push(@array,$hash);
+                }
+            }
+    
+        }
+    }
+    die ::Dumper(@array);
     return(\@array); 
 }  
+
+1;
   
 __END__
 
