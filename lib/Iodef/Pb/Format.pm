@@ -4,7 +4,7 @@ use base 'Class::Accessor';
 use strict;
 use warnings;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 $VERSION = eval $VERSION;
 
 use Module::Pluggable require => 1, search_path => [__PACKAGE__];
@@ -125,7 +125,7 @@ sub to_keypair {
             my $guid;
             if(my $iad = $i->get_AdditionalData()){
                 foreach (@$iad){
-                    next unless($_->get_meaning() eq 'guid');
+                    next unless($_->get_meaning() =~ /^guid/);
                     $guid = $_->get_content();
                 }
             }
@@ -199,16 +199,13 @@ sub to_keypair {
                                         push(@array,$hash);
                                     }
                                 }
-                                #die ::Dumper(@array);
                             }
                         }
                     }
                 }
             }
-            #push(@array,$hash);
         }
     }
-    #die ::Dumper(@array);
     return(\@array); 
 }
 

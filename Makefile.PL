@@ -6,4 +6,5 @@ all_from    'lib/Iodef/Pb/Format.pm';
 requires    'Module::Install'   => '1.00';
 requires    'Iodef::Pb'         => '0.01';
 requires    'Snort::Rule'       => '1.07';
+requires    'Parse::Range'      => '0.96';
 WriteAll();

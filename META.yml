@@ -20,7 +20,8 @@ no_index:
 requires:
   Iodef::Pb: 0.01
   Module::Install: 1.00
+  Parse::Range: 0.96
   Snort::Rule: 1.07
 resources:
   license: http://dev.perl.org/licenses/
-version: 0.02
+version: 0.03

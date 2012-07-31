@@ -45,7 +45,7 @@ sub write_out {
     if($c{'address'}){
         push(@cols,'address');
     }
-    if($c{'hash'}){
+    if($c{'hash'} && !$c{'address'}){
         push(@cols,'hash');
     }
     if($c{'protocol'}){
