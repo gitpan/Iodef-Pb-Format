@@ -4,7 +4,7 @@ use base 'Class::Accessor';
 use strict;
 use warnings;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 $VERSION = eval $VERSION;
 
 use Module::Pluggable require => 1, search_path => [__PACKAGE__];
@@ -22,7 +22,7 @@ sub new {
      
     my $driver  = $args->{'format'} || 'Table';
     $driver     = __PACKAGE__.'::'.$driver;
-      
+   
     my $data;
     try {
         $driver = $driver->SUPER::new($args);
@@ -103,7 +103,10 @@ sub to_keypair {
             my $assessment = @{$i->get_Assessment()}[0];
         
             my $confidence = $assessment->get_Confidence->get_rating();
-            $confidence = $assessment->get_Confidence->get_content() if($confidence == ConfidenceType::ConfidenceRating::Confidence_rating_numeric());
+            if($confidence == ConfidenceType::ConfidenceRating::Confidence_rating_numeric()){
+                $confidence = $assessment->get_Confidence->get_content() || 0;
+                $confidence = sprintf("%.3f",$confidence) unless($confidence =~ /^\d+$/);
+            }
             $assessment = @{$assessment->get_Impact}[0]->get_content->get_content();
         
             ## TODO -- restriction needs to be mapped down to event recursively where it exists in IODEF
@@ -139,7 +142,7 @@ sub to_keypair {
                     $altid_restriction = $r;
                 }
             }
-            
+
             if($self->get_group_map && $self->get_group_map->{$guid}){
                 $guid = $self->get_group_map->{$guid};
             }
@@ -208,100 +211,6 @@ sub to_keypair {
     }
     return(\@array); 
 }
-
-sub by_hash {
-    my $self = shift;
-    my $data = shift;
-    
-    my @array;
-    
-    # we do this in case we're handed an array of IODEF Documents
-    if(ref($data) eq 'IODEFDocumentType'){
-        $data = [$data];
-    }
-        
-    foreach my $doc (@$data){
-        next unless(ref($doc) eq 'IODEFDocumentType');
-        foreach my $i (@{$doc->get_Incident()}){
-            my $detecttime = $i->get_DetectTime();
-            my $reporttime = $i->get_ReportTime();
-        
-            my $description = @{$i->get_Description}[0] ->get_content();
-
-            my $id = $i->get_IncidentID->get_content();
-        
-            my $assessment = @{$i->get_Assessment()}[0];
-        
-            my $confidence = $assessment->get_Confidence->get_rating();
-            $confidence = $assessment->get_Confidence->get_content() if($confidence == ConfidenceType::ConfidenceRating::Confidence_rating_numeric());
-            $assessment = @{$assessment->get_Impact}[0]->get_content->get_content();
-        
-            ## TODO -- restriction needs to be mapped down to event recursively where it exists in IODEF
-            my $restriction = $i->get_restriction() || RestrictionType::restriction_type_private();
-            my $purpose     = $i->get_purpose();
-        
-            my ($altid,$altid_restriction);
-        
-            if(my $x = $i->get_AlternativeID()){
-                if(ref($x) eq 'ARRAY'){
-                    $altid               = @{$x}[0];
-                } else {
-                    $altid               = $x;
-                }
-                $altid_restriction   = $altid->get_restriction();
-                $altid               = @{$altid->get_IncidentID}[0]->get_content();
-            }
-            
-            my $guid;
-            if(my $iad = $i->get_AdditionalData()){
-                foreach (@$iad){
-                    next unless($_->get_meaning() eq 'guid');
-                    $guid = $_->get_content();
-                }
-            }
-            $restriction        = $self->convert_restriction($restriction);
-            $altid_restriction   = $self->convert_restriction($altid_restriction);
-            if(my $map = $self->get_restriction_map()){
-                if(my $r = $map->{$restriction}){
-                    $restriction = $r;
-                }
-                if(my $r = $map->{$altid_restriction}){
-                    $altid_restriction = $r;
-                }
-            }
-            
-            if($self->get_group_map && $self->get_group_map->{$guid}){
-                $guid = $self->get_group_map->{$guid};
-            }
-            
-            my $hash = {
-                id          => $id,
-                guid        => $guid,
-                description => $description,
-                detecttime  => $detecttime,
-                reporttime  => $reporttime,
-                confidence  => $confidence,
-                assessment  => $assessment,
-                restriction => $restriction,
-                purpose     => $purpose,
-                restriction => $restriction,
-                alternativeid               => $altid,
-                alternativeid_restriction   => $altid_restriction,
-            };
-            
-            if(my $ad = $i->get_AdditionalData()){
-                foreach my $a (@$ad){
-                    next unless($a->get_meaning() eq 'hash');
-                    $hash->{'hash'}         = $a->get_content();
-                    push(@array,$hash);
-                }
-            }
-    
-        }
-    }
-    die ::Dumper(@array);
-    return(\@array); 
-}  
 
 1;
   

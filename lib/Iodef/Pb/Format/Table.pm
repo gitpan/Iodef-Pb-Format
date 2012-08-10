@@ -13,6 +13,9 @@ sub write_out {
     my $self = shift;
     my $args = shift;
     
+    #delete($args->{'data'});
+    #die ::Dumper($args);
+
     my $array = $self->to_keypair($args->{'data'});
   
     my @cols;
@@ -95,6 +98,23 @@ sub write_out {
         }
         $table->load([ map { $e->{$_} } @cols]);
     }
+    ## TODO -- what if RestrictionType in Iodef::Pb and FeedType get out of sync?
+    my $restriction = $self->convert_restriction($args->{'restriction'}) || 'private';
+    if($self->get_group_map && $self->get_group_map->{$args->{'guid'}}){
+        $args->{'guid'} = $self->get_group_map->{$args->{'guid'}};
+    }
+    my $meta = "feed description:   $args->{'description'}
+feed reporttime:    $args->{'reporttime'}
+feed uuid:          $args->{'uuid'}
+feed guid:          $args->{'guid'}
+feed restriction:   $restriction
+feed confidence:    $args->{'confidence'}\n\n";
+
+    unless($args->{'table_nowarning'}){
+        $meta = 'WARNING: Turn off this warning by adding: \'table_nowarning = 1\' to your ~/.cif config'."\n\n".$meta;
+        $meta = 'WARNING: This table output not to be used for parsing, see "-p plugins" (via cif -h)'."\n".$meta;
+    }
+    $table = $meta . $table;
     return $table;
 }
 
